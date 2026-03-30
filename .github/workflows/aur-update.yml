@@ -1,0 +1,59 @@
+name: Check and Update AFFiNE AUR
+
+on:
+  schedule:
+    - cron:  '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  update-aur:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install pacman dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm git pacman-contrib curl jq
+
+      - name: Setup environment (Fix root & git issues)
+        run: |
+          useradd -m builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      - name: Run update script
+        run: bash update.sh
+
+      - name: Commit to GitHub Repo
+        if: env.UPDATED == 'true'
+        run: |
+          cd "$GITHUB_WORKSPACE"
+
+
+          echo "==== 当前路径 ===="
+          pwd
+          echo "==== 目录下的文件（看有没有 .git） ===="
+          ls -la
+          chown -R root:root "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory '*'
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add PKGBUILD .SRCINFO
+          git commit -m "chore: auto update to ${NEW_VER}"
+          git push
+
+      - name: Publish to AUR
+        if: env.UPDATED == 'true'
+        uses: KSXGitHub/github-actions-deploy-aur@v3
+        with:
+          pkgname: 'affine-bin'
+          pkgbuild: ./PKGBUILD
+          commit_username: 'hanako'
+          commit_email: 'i@hanako.me'
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "Update to ${NEW_VER}"
+          ssh_keyscan_types: rsa,ecdsa,ed25519
